@@ -1,0 +1,57 @@
+#before starting, resave the file as csv type.
+require("tidyverse")
+setwd("D:/Data Analysis/R/limma/proteingroups")
+p<-read.csv("proteingroups.csv",header=TRUE)
+np<-p %>% 
+  #selecrt wanted columns and rows to creat a new data frame
+  select("Majority.protein.IDs",contains("LFQ.intensity."),"Peptide.counts..all.","Peptide.counts..unique.","Gene.names","Reverse","Potential.contaminant","Only.identified.by.site","Protein.names") %>%
+  filter(Reverse != "+",Potential.contaminant !="+",Only.identified.by.site !="+")
+head(np)
+#np<-data.frame(np,ID=c(1:50447))#add a new column "ID" to n
+write.csv(np,file="D:/Data Analysis/R/limma/proteingroups/proteingroups-RDA.csv",quote=F,row.names=T)
+nnp<-np %>% select(contains("LFQ.intensity."))# create a number only matrix
+#write.csv(nnp,file="D:/Data Analysis/R/limma/proteingroups/proteingroups-RDA-Intensity-only.csv",quote=F,row.names=T)
+nnp[nnp==0]<-NA #将0值转变为NA
+library(missRanger)# random forest filling the missing value,file:///D:/360MoveData/Users/paris/Documents/R/win-library/3.5/missRanger/doc/vignette_missRanger.html
+nnp<-missRanger(nnp,pmm.k=3,num.trees = 100)#add predictive mean matching (PMM) to a postive number, not means, add means =3, leading to more natural imputations and improved distributional properties of the resulting values
+#write.csv(nnp,file="D:/Data Analysis/R/limma/proteingroups/proteingroups-RDA-Intensity-only-filled NA.csv",quote=F,row.names=T)
+head(nnp<-log2(nnp))#log transform makes data suitable for linear model
+write.csv(nnp,file="D:/Data Analysis/R/limma/proteingroups/proteingroups-RDA-Intensity-only-filled NA-log2.csv",quote=F,row.names=T)
+nrow<-nrow(nnp)
+#row.names(nnp) <- c(11:4535)
+require(limma)
+nnp<-as.matrix(nnp)
+design<-model.matrix(~-1+factor(c(1,1,1,2,2,2,3,3,3)))
+colnames(design) <-c("A", "B","C")
+fit<-lmFit(nnp,design)#make Linear Model fit for each petide,result of fitting gene-wise linear models to the normalized intensities or log-ratios
+contrast.matrix <-makeContrasts("B-A","C-A","C-B",levels=design)#which compares are extracted,level give the names of parameters
+fit2<-contrasts.fit(fit,contrast.matrix)#Compute Contrasts from Linear Model Fit,generate coefficienct，unscaled stdev of each compare,residue,sigma,Ameam for every peptide/protein/gene 
+fit2<-eBayes(fit2)#calculate pvalue, t stastic and lods for each compare and F, F pvalue for every peptide/gene/protein
+results<-decideTests(fit2, method="global", adjust.method="none", p.value=0.05,lfc=1)# F means whether this gene is DF in any contrast, T means whether this gene is DF in this contrast
+summary(results)
+x1<-topTable(fit2,number=nrow,coef="B-A",adjust.method="BH")#coef means contrsat which interested,number means topN genes 
+write.csv(x1,file="D:/Data Analysis/R/limma/proteingroups/limma-B-A.csv",quote=F,row.names=T)
+head(rownamesx1<-row.names(x1))
+rownamesx1<-as.numeric(rownamesx1)
+x1<-data.frame(x1,rownamesx1)#add a new column rownames
+x1<-arrange(x1,rownamesx1)# sort by rownames
+head(x11<-x1 %>% select("rownamesx1","logFC","P.Value","adj.P.Val"))# select column needed
+x11<-rename(x11,BvsA_logFC=logFC, BvsA_P.Value = P.Value,BvsA_adj.P.Val=adj.P.Val)#rename the x11
+x2<-topTable(fit2,number=nrow,coef="C-B",adjust.method="BH")
+write.csv(x2,file="D:/Data Analysis/R/limma/proteingroups/limma-C-B.csv",quote=F,row.names=T)
+head(rownamesx2<-row.names(x2))
+rownamesx2<-as.numeric(rownamesx2)
+x2<-data.frame(x2,rownamesx2)#add a new column rownames
+x2<-arrange(x2,rownamesx2)# sort by rownames
+head(x22<-x2 %>% select("rownamesx2","logFC","P.Value","adj.P.Val"))# select column needed
+x22<-rename(x22,CvsB_logFC=logFC, CvsB_P.Value = P.Value,CvsB_adj.P.Val=adj.P.Val)#r
+x3<-topTable(fit2,number=nrow,coef="C-A",adjust.method="BH")
+write.csv(x3,file="D:/Data Analysis/R/limma/proteingroups/C-A.csv",quote=F,row.names=T)
+head(rownamesx3<-row.names(x3))
+rownamesx3<-as.numeric(rownamesx3)
+x3<-data.frame(x3,rownamesx3)#add a new column rownames
+x3<-arrange(x3,rownamesx3)# sort by rownames
+head(x33<-x3 %>% select("rownamesx3","logFC","P.Value","adj.P.Val"))# select column needed
+x33<-rename(x33,CvsA_logFC=logFC, CvsA_P.Value = P.Value,CvsA_adj.P.Val=adj.P.Val)#r
+xfinal<-cbind(np,nnp,x11,x22,x33)#combine four files
+write.csv(xfinal,file="D:/Data Analysis/R/limma/proteingroups/final-result.csv",quote=F,row.names=T)
